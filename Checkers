@@ -1,0 +1,995 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Checkers + SFX + Undo + PDE Capture Quiz</title>
+  <style>
+    :root{
+      --light:#f0d9b5;
+      --dark:#b58863;
+      --accent:#2b6cb0;
+      --warn:#f59e0b;
+      --red:#d64545;
+      --black:#222;
+      --bg:#0f172a;
+      --panel:#111827;
+      --text:#e5e7eb;
+      --muted:#94a3b8;
+    }
+    body{
+      margin:0; min-height:100vh;
+      display:flex; align-items:center; justify-content:center;
+      background: radial-gradient(1200px 800px at 20% 10%, #1f2937, var(--bg));
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      color:var(--text);
+      padding:24px;
+    }
+    .wrap{ display:flex; gap:18px; flex-wrap:wrap; align-items:flex-start; justify-content:center; }
+    .panel{
+      width:340px; max-width:92vw;
+      background: rgba(17,24,39,.88);
+      border:1px solid rgba(255,255,255,.10);
+      border-radius:18px; padding:16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.35);
+      backdrop-filter: blur(8px);
+    }
+    h1{ font-size:18px; margin:0 0 10px; }
+    .row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+    .pill{
+      background: rgba(255,255,255,.08);
+      border:1px solid rgba(255,255,255,.10);
+      border-radius:999px;
+      padding:6px 10px;
+      font-size:13px;
+      color:var(--muted);
+    }
+    .pill strong{ color:var(--text); font-weight:600; }
+    button{
+      background: rgba(255,255,255,.10);
+      border:1px solid rgba(255,255,255,.16);
+      color:var(--text);
+      border-radius:12px;
+      padding:10px 12px;
+      cursor:pointer;
+    }
+    button:hover{ background: rgba(255,255,255,.14); }
+    button:active{ transform: translateY(1px); }
+    button:disabled{ opacity:.55; cursor:not-allowed; transform:none; }
+    .hint{ font-size:13px; color:var(--muted); line-height:1.35; margin-top:10px; }
+    .status{ margin-top:12px; font-size:14px; min-height: 20px;}
+    .good{ color:#86efac; }
+    .warn{ color:#fde68a; }
+    .bad{ color:#fca5a5; }
+
+    /* Board */
+    .board{
+      display:grid;
+      grid-template-columns: repeat(8, 64px);
+      grid-template-rows: repeat(8, 64px);
+      border-radius:18px;
+      overflow:hidden;
+      border: 1px solid rgba(255,255,255,.14);
+      box-shadow: 0 12px 34px rgba(0,0,0,.4);
+      user-select:none;
+      touch-action: manipulation;
+      background: #000;
+    }
+    @media (max-width: 560px){
+      .board{ grid-template-columns: repeat(8, 42px); grid-template-rows: repeat(8, 42px); }
+    }
+    .sq{
+      position:relative;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+    }
+    .sq.light{ background: var(--light); }
+    .sq.dark{ background: var(--dark); }
+    .sq.selectable{ outline: 3px solid rgba(255,255,255,.35); outline-offset:-3px; }
+    .sq.selected{ outline: 4px solid var(--accent); outline-offset:-4px; }
+    .sq.move{ box-shadow: inset 0 0 0 4px rgba(43,108,176,.55); }
+    .sq.capture{ box-shadow: inset 0 0 0 4px rgba(245,158,11,.65); }
+
+    .piece{
+      width:70%;
+      height:70%;
+      border-radius:50%;
+      box-shadow: inset 0 6px 10px rgba(255,255,255,.18),
+                  inset 0 -10px 14px rgba(0,0,0,.35),
+                  0 8px 14px rgba(0,0,0,.25);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      position:relative;
+    }
+    .piece.red{ background: radial-gradient(circle at 30% 25%, #ffb4b4, var(--red)); }
+    .piece.black{ background: radial-gradient(circle at 30% 25%, #b3b3b3, var(--black)); }
+    .king{
+      width:62%;
+      height:62%;
+      border-radius:50%;
+      border: 2px solid rgba(255,255,255,.65);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-weight:800;
+      color:rgba(255,255,255,.92);
+      text-shadow: 0 2px 8px rgba(0,0,0,.35);
+      background: rgba(0,0,0,.08);
+    }
+
+    /* Quiz Modal */
+    .overlay{
+      position:fixed; inset:0;
+      display:none;
+      align-items:center; justify-content:center;
+      background: rgba(0,0,0,.55);
+      padding:18px;
+      z-index:999;
+    }
+    .modal{
+      width:min(720px, 96vw);
+      background: rgba(17,24,39,.95);
+      border:1px solid rgba(255,255,255,.12);
+      border-radius:18px;
+      box-shadow: 0 18px 50px rgba(0,0,0,.55);
+      padding:16px;
+    }
+    .modal h2{ margin:0 0 8px; font-size:16px; }
+    .qtext{
+      white-space: pre-wrap;
+      font-size:14px;
+      color: var(--text);
+      line-height:1.35;
+      margin: 10px 0 12px;
+    }
+    .choices{
+      display:grid;
+      grid-template-columns: 1fr;
+      gap:10px;
+      margin-top: 8px;
+    }
+    .modal .meta{
+      display:flex; gap:10px; flex-wrap:wrap; align-items:center;
+      color: var(--muted);
+      font-size:13px;
+    }
+    .small{ font-size:12px; color: var(--muted); margin-top:10px;}
+    code.inline{
+      padding:2px 6px;
+      background: rgba(255,255,255,.08);
+      border:1px solid rgba(255,255,255,.10);
+      border-radius:8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div id="board" class="board" aria-label="Checkers board"></div>
+
+    <div class="panel">
+      <h1>Checkers (SFX + Undo + PDE Capture Quiz)</h1>
+
+      <div class="row">
+        <div class="pill">Turn: <strong id="turnLabel"></strong></div>
+        <div class="pill">Must capture: <strong id="mustCaptureLabel"></strong></div>
+      </div>
+
+      <div class="row" style="margin-top:10px;">
+        <button id="restartBtn">Restart</button>
+        <button id="undoBtn">Undo</button>
+        <button id="flipBtn">Flip</button>
+      </div>
+
+      <div class="status" id="status"></div>
+
+      <div class="hint">
+        Rules in this version:
+        <ul>
+          <li>Captures are mandatory.</li>
+          <li>After each capture, you must answer a random PDE question.</li>
+          <li>If you answer <b>wrong</b>, that capture is undone and the turn passes to the opponent.</li>
+          <li>Undo rewinds the last move attempt (including after quiz outcomes).</li>
+        </ul>
+        Tip: If audio is silent, click once anywhere (browser audio policy) and try again.
+      </div>
+    </div>
+  </div>
+
+  <!-- Quiz Modal -->
+  <div id="overlay" class="overlay" role="dialog" aria-modal="true">
+    <div class="modal">
+      <div class="meta">
+        <span class="pill">Capture Quiz</span>
+        <span class="pill">Pick <strong>one</strong> answer</span>
+        <span class="pill">Wrong ⇒ <strong>turn passes</strong></span>
+      </div>
+      <h2 id="qTitle">Question</h2>
+      <div id="qText" class="qtext"></div>
+      <div id="choices" class="choices"></div>
+      <div id="qFeedback" class="small"></div>
+    </div>
+  </div>
+
+  <script>
+    /********************
+     * QUESTIONS (given)
+     ********************/
+    const PDE_QUESTIONS = [
+      {
+        id: "Q1",
+        text:
+`Q1.
+x^2Uxx + 2xyUxy + y^2Uyy = 0
+
+is classified as:
+A. Elliptic
+B. Parabolic
+C. Hyperbolic
+D. Cannot be classified`,
+        correct: "B",
+        choices: ["A","B","C","D"]
+      },
+      {
+        id: "Q2",
+        text:
+`Q2. A second-order linear PDE is homogeneous if:
+A. Boundary conditions are zero
+B. The dependent variable does not appear explicitly
+C. All terms involve the dependent variable or its derivatives only
+D. Separation of variables is applicable`,
+        correct: "C",
+        choices: ["A","B","C","D"]
+      },
+      {
+        id: "Q3",
+        text:
+`Q3. For which condition does the method of separation of variables fail?
+A. Linear PDE
+B. Rectangular domain
+C. Mixed boundary conditions
+D. Homogeneous PDE`,
+        correct: "C",
+        choices: ["A","B","C","D"]
+      },
+      {
+        id: "Q4",
+        text:
+`Q4. Consider the boundary value problem
+Uxx + Uyy = 0, 0<x<L, 0<y<H
+with u(0,y)=u(L,y)=0, u(x,0)=0, u(x,H)=f(x).
+The solution involves:
+A. Only sine series in (x)
+B. Only cosine series in (x)
+C. Exponential series in (y)
+D. Polynomial expansion`,
+        correct: "A",
+        choices: ["A","B","C","D"]
+      },
+      {
+        id: "Q5",
+        text:
+`Q5. In separation of variables, the separation constant is chosen negative for Laplace’s equation because:
+A. Eigenvalues must be real
+B. Boundary conditions demand bounded solutions
+C. The PDE is non-homogeneous
+D. The domain is finite`,
+        correct: "B",
+        choices: ["A","B","C","D"]
+      },
+      {
+        id: "Q6",
+        text:
+`Q6. Which eigenvalue problem arises from solving the heat equation using SOV?
+A. Sturm–Liouville problem
+B. Cauchy problem
+C. Initial value problem
+D. Fredholm integral equation`,
+        correct: "A",
+        choices: ["A","B","C","D"]
+      },
+      {
+        id: "Q7",
+        text:
+`Q7. The orthogonality of eigenfunctions is essential because it allows:
+A. Reduction of PDE order
+B. Separation of variables
+C. Expansion of arbitrary functions in series
+D. Classification of PDEs`,
+        correct: "C",
+        choices: ["A","B","C","D"]
+      },
+      {
+        id: "Q8",
+        text:
+`Q8. For the PDE
+Utt = c^2Uxx
+with homogeneous boundary conditions, the time-dependent part of the solution satisfies:
+A. A first-order ODE
+B. An elliptic equation
+C. A harmonic equation
+D. A second-order ODE`,
+        correct: "D",
+        choices: ["A","B","C","D"]
+      },
+      {
+        id: "Q9",
+        text:
+`Q9. A non-homogeneous boundary condition primarily affects:
+A. Eigenvalues
+B. Orthogonality of eigenfunctions
+C. The form of the particular solution
+D. Classification of PDE`,
+        correct: "C",
+        choices: ["A","B","C","D"]
+      },
+      {
+        id: "Q10",
+        text:
+`Q10. Which technique is most commonly used to handle non-homogeneous boundary conditions?
+A. Laplace transform
+B. Fourier transform
+C. Change of variables
+D. Green’s function only`,
+        correct: "C",
+        choices: ["A","B","C","D"]
+      },
+      {
+        id: "Q11",
+        text:
+`Q11. In solving
+Uxx + Uyy = f(x,y)
+the complementary solution satisfies:
+A. The full PDE
+B. A first-order PDE
+C. The homogeneous equation
+D. Boundary conditions only`,
+        correct: "C",
+        choices: ["A","B","C","D"]
+      },
+      {
+        id: "Q12",
+        text:
+`Q12. For a homogeneous BVP, uniqueness of solution is guaranteed primarily by:
+A. Existence of eigenvalues
+B. Linearity of PDE
+C. Maximum principle
+D. Orthogonality`,
+        correct: "C",
+        choices: ["A","B","C","D"]
+      },
+      {
+        id: "Q13",
+        text:
+`Q13. The eigenvalues obtained from a homogeneous BVP are:
+A. Always complex
+B. Always positive
+C. Real and discrete
+D. Arbitrary`,
+        correct: "C",
+        choices: ["A","B","C","D"]
+      },
+      {
+        id: "Q14",
+        text:
+`Q14. Which PDE requires two initial conditions in time?
+A. Laplace equation
+B. Heat equation
+C. Wave equation
+D. Poisson equation`,
+        correct: "C",
+        choices: ["A","B","C","D"]
+      },
+      {
+        id: "Q15",
+        text:
+`Q15. If a forcing function is orthogonal to all eigenfunctions, then the particular solution:
+A. Becomes unbounded
+B. Does not exist
+C. Is identically zero
+D. Becomes linear`,
+        correct: "C",
+        choices: ["A","B","C","D"]
+      },
+      {
+        id: "Q16",
+        text:
+`Q16. For Laplace’s equation, non-trivial solutions exist only when:
+A. Boundary conditions are homogeneous
+B. Domain is unbounded
+C. Separation constant is zero
+D. Eigenvalues are zero`,
+        correct: "A",
+        choices: ["A","B","C","D"]
+      },
+      {
+        id: "Q17",
+        text:
+`Q17. Which feature distinguishes Poisson’s equation from Laplace’s equation?
+A. Order of PDE
+B. Boundary conditions
+C. Presence of source term
+D. Domain shape`,
+        correct: "C",
+        choices: ["A","B","C","D"]
+      },
+      {
+        id: "Q18",
+        text:
+`Q18. In eigenfunction expansion, convergence is ensured mainly due to:
+A. Bounded domain
+B. Orthogonality and completeness
+C. Linearity of PDE
+D. Homogeneous conditions`,
+        correct: "B",
+        choices: ["A","B","C","D"]
+      },
+      {
+        id: "Q19",
+        text:
+`Q19. If the boundary conditions are non-homogeneous but the PDE is homogeneous, the solution is usually obtained by:
+A. Direct SOV
+B. Fourier transform
+C. Superposition principle
+D. Method of characteristics`,
+        correct: "C",
+        choices: ["A","B","C","D"]
+      },
+      {
+        id: "Q20",
+        text:
+`Q20. Which statement is true for homogeneous linear PDEs?
+A. Zero solution is the only solution
+B. Superposition principle holds
+C. Boundary conditions are irrelevant
+D. Eigenvalues depend on initial conditions`,
+        correct: "B",
+        choices: ["A","B","C","D"]
+      },
+    ];
+
+    /********************
+     * GAME STATE
+     ********************/
+    const SIZE = 8;
+    //  0 empty
+    //  1 red man,  2 red king
+    // -1 black man,-2 black king
+    let board = [];
+    let turn = 1; // 1 red, -1 black
+    let selected = null;     // {r,c}
+    let legalMoves = [];     // moves for selected piece
+    let chainLock = null;    // {r,c} when multi-jump requires continuing with same piece
+    let flipped = false;
+
+    // Undo stack of snapshots
+    const history = [];
+
+    // Quiz lock
+    let inputLocked = false;
+    let pendingAfterCapture = null; // { preSnap, move }
+
+    /********************
+     * DOM
+     ********************/
+    const boardEl = document.getElementById("board");
+    const turnLabel = document.getElementById("turnLabel");
+    const mustCaptureLabel = document.getElementById("mustCaptureLabel");
+    const statusEl = document.getElementById("status");
+    const restartBtn = document.getElementById("restartBtn");
+    const undoBtn = document.getElementById("undoBtn");
+    const flipBtn = document.getElementById("flipBtn");
+
+    const overlay = document.getElementById("overlay");
+    const qTitle = document.getElementById("qTitle");
+    const qText = document.getElementById("qText");
+    const choicesEl = document.getElementById("choices");
+    const qFeedback = document.getElementById("qFeedback");
+
+    /********************
+     * SOUND (WebAudio)
+     ********************/
+    let audioCtx = null;
+    function ensureAudio(){
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === "suspended") audioCtx.resume();
+    }
+    function playTone(freq, durMs, type="sine", gain=0.06){
+      try{
+        ensureAudio();
+        const t0 = audioCtx.currentTime;
+        const osc = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, t0);
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.exponentialRampToValueAtTime(gain, t0 + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + durMs/1000);
+        osc.connect(g).connect(audioCtx.destination);
+        osc.start(t0);
+        osc.stop(t0 + durMs/1000 + 0.02);
+      }catch(_){}
+    }
+    const SFX = {
+      click(){ playTone(520, 60, "triangle", 0.04); },
+      move(){ playTone(420, 90, "triangle", 0.06); },
+      capture(){ playTone(220, 110, "sawtooth", 0.06); playTone(660, 70, "square", 0.03); },
+      correct(){ playTone(784, 120, "sine", 0.06); playTone(988, 140, "sine", 0.05); },
+      wrong(){ playTone(180, 160, "sawtooth", 0.07); },
+      undo(){ playTone(300, 90, "triangle", 0.05); playTone(240, 120, "triangle", 0.05); },
+      win(){ playTone(523.25, 140, "sine", 0.05); playTone(659.25, 140, "sine", 0.05); playTone(783.99, 180, "sine", 0.05); }
+    };
+
+    // help browsers that require a gesture to start audio
+    document.addEventListener("pointerdown", () => { ensureAudio(); }, { once:true });
+
+    /********************
+     * HELPERS
+     ********************/
+    function deepCloneBoard(b){ return b.map(row => row.slice()); }
+    function sign(x){ return x>0 ? 1 : x<0 ? -1 : 0; }
+    function inBounds(r,c){ return r>=0 && r<SIZE && c>=0 && c<SIZE; }
+    function isKing(p){ return Math.abs(p) === 2; }
+
+    function snapshot(){
+      return {
+        board: deepCloneBoard(board),
+        turn,
+        selected: selected ? {r:selected.r,c:selected.c} : null,
+        legalMoves: legalMoves.map(m => ({
+          from:{...m.from}, to:{...m.to},
+          capture: m.capture ? {...m.capture} : null
+        })),
+        chainLock: chainLock ? {r:chainLock.r,c:chainLock.c} : null,
+        flipped,
+        inputLocked,
+        pendingAfterCapture: pendingAfterCapture ? {
+          preSnap: pendingAfterCapture.preSnap ? structuredClone(pendingAfterCapture.preSnap) : null,
+          move: pendingAfterCapture.move ? structuredClone(pendingAfterCapture.move) : null
+        } : null
+      };
+    }
+
+    function restoreSnap(s){
+      board = deepCloneBoard(s.board);
+      turn = s.turn;
+      selected = s.selected ? {r:s.selected.r,c:s.selected.c} : null;
+      legalMoves = (s.legalMoves || []).map(m => ({
+        from:{...m.from}, to:{...m.to},
+        capture: m.capture ? {...m.capture} : null
+      }));
+      chainLock = s.chainLock ? {r:s.chainLock.r,c:s.chainLock.c} : null;
+      flipped = !!s.flipped;
+      inputLocked = !!s.inputLocked;
+      pendingAfterCapture = s.pendingAfterCapture ? structuredClone(s.pendingAfterCapture) : null;
+    }
+
+    function pushHistory(){
+      history.push(snapshot());
+      undoBtn.disabled = history.length === 0;
+    }
+
+    function popUndo(){
+      if (history.length === 0) return;
+      const s = history.pop();
+      // close quiz if it was open
+      hideQuiz();
+      restoreSnap(s);
+      SFX.undo();
+      render();
+      updateStatus();
+      undoBtn.disabled = history.length === 0;
+    }
+
+    /********************
+     * CHECKERS RULES
+     ********************/
+    function dirsForPiece(p){
+      const s = sign(p);
+      if (isKing(p)) return [[1,-1],[1,1],[-1,-1],[-1,1]];
+      return s === 1 ? [[-1,-1],[-1,1]] : [[1,-1],[1,1]];
+    }
+
+    function movesForPiece(r,c, includeQuiet){
+      const p = board[r][c];
+      if (p === 0) return [];
+      const player = sign(p);
+      const dirs = dirsForPiece(p);
+      const moves = [];
+      for (const [dr,dc] of dirs){
+        const r1 = r + dr, c1 = c + dc;
+        const r2 = r + 2*dr, c2 = c + 2*dc;
+
+        // capture
+        if (inBounds(r2,c2) && board[r2][c2] === 0){
+          const mid = board[r1]?.[c1];
+          if (mid && sign(mid) === -player){
+            moves.push({ from:{r,c}, to:{r:r2,c:c2}, capture:{r:r1,c:c1} });
+          }
+        }
+        // quiet
+        if (includeQuiet && inBounds(r1,c1) && board[r1][c1] === 0){
+          moves.push({ from:{r,c}, to:{r:r1,c:c1}, capture:null });
+        }
+      }
+      return moves;
+    }
+
+    function allMovesForPlayer(player){
+      const captures = [];
+      const quiet = [];
+      for (let r=0; r<SIZE; r++){
+        for (let c=0; c<SIZE; c++){
+          const p = board[r][c];
+          if (sign(p) !== player) continue;
+          const ms = movesForPiece(r,c,true);
+          for (const m of ms) (m.capture ? captures : quiet).push(m);
+        }
+      }
+      return {captures, quiet};
+    }
+
+    function mustCaptureForPlayer(player){
+      return allMovesForPlayer(player).captures.length > 0;
+    }
+
+    function legalMovesForSelection(r,c){
+      const p = board[r][c];
+      if (sign(p) !== turn) return [];
+      if (chainLock && (chainLock.r !== r || chainLock.c !== c)) return [];
+
+      const mustCap = mustCaptureForPlayer(turn);
+      const all = movesForPiece(r,c,true);
+
+      if (chainLock) return all.filter(m => m.capture);
+      if (mustCap) return all.filter(m => m.capture);
+      return all;
+    }
+
+    function applyMove(move){
+      const p = board[move.from.r][move.from.c];
+      board[move.from.r][move.from.c] = 0;
+      board[move.to.r][move.to.c] = p;
+
+      if (move.capture){
+        board[move.capture.r][move.capture.c] = 0;
+      }
+
+      // kinging
+      const p2 = board[move.to.r][move.to.c];
+      if (!isKing(p2)){
+        if (p2 === 1 && move.to.r === 0) board[move.to.r][move.to.c] = 2;
+        if (p2 === -1 && move.to.r === SIZE-1) board[move.to.r][move.to.c] = -2;
+      }
+
+      // multi-jump logic if capture
+      if (move.capture){
+        const moreCaps = movesForPiece(move.to.r, move.to.c, false).filter(m => m.capture);
+        if (moreCaps.length > 0){
+          chainLock = {r: move.to.r, c: move.to.c};
+          selected = {r: move.to.r, c: move.to.c};
+          legalMoves = legalMovesForSelection(selected.r, selected.c);
+          return; // same player's turn continues (if quiz answered correctly)
+        }
+      }
+
+      // end turn
+      chainLock = null;
+      selected = null;
+      legalMoves = [];
+      turn *= -1;
+    }
+
+    function hasAnyMoves(player){
+      const {captures, quiet} = allMovesForPlayer(player);
+      return (captures.length + quiet.length) > 0;
+    }
+
+    function winnerIfAny(){
+      let redPieces = 0, blackPieces = 0;
+      for (let r=0; r<SIZE; r++){
+        for (let c=0; c<SIZE; c++){
+          const p = board[r][c];
+          if (p>0) redPieces++;
+          else if (p<0) blackPieces++;
+        }
+      }
+      if (redPieces === 0) return -1;
+      if (blackPieces === 0) return 1;
+      if (!hasAnyMoves(1)) return -1;
+      if (!hasAnyMoves(-1)) return 1;
+      return 0;
+    }
+
+    /********************
+     * RENDERING
+     ********************/
+    function coordToIndex(r,c){
+      if (!flipped) return r*SIZE + c;
+      return (SIZE-1-r)*SIZE + (SIZE-1-c);
+    }
+    function indexToCoord(i){
+      const r = Math.floor(i / SIZE);
+      const c = i % SIZE;
+      if (!flipped) return {r,c};
+      return {r: SIZE-1-r, c: SIZE-1-c};
+    }
+
+    function render(){
+      // create squares once
+      if (boardEl.childElementCount !== SIZE*SIZE){
+        boardEl.innerHTML = "";
+        for (let i=0; i<SIZE*SIZE; i++){
+          const sq = document.createElement("div");
+          sq.className = "sq";
+          sq.addEventListener("click", () => onSquareClick(i));
+          boardEl.appendChild(sq);
+        }
+      }
+
+      for (let i=0; i<SIZE*SIZE; i++){
+        const {r,c} = indexToCoord(i);
+        const sq = boardEl.children[i];
+        const isDark = (r+c)%2===1;
+
+        sq.className = "sq " + (isDark ? "dark" : "light");
+        sq.innerHTML = "";
+
+        const p = board[r][c];
+        if (p !== 0){
+          const piece = document.createElement("div");
+          piece.className = "piece " + (p>0 ? "red" : "black");
+          if (isKing(p)){
+            const k = document.createElement("div");
+            k.className = "king";
+            k.textContent = "K";
+            piece.appendChild(k);
+          }
+          sq.appendChild(piece);
+        }
+      }
+
+      const mustCap = mustCaptureForPlayer(turn);
+      mustCaptureLabel.textContent = mustCap ? "Yes" : "No";
+      turnLabel.textContent = (turn === 1 ? "Red" : "Black");
+
+      // highlight selectable pieces
+      for (let r=0; r<SIZE; r++){
+        for (let c=0; c<SIZE; c++){
+          const p = board[r][c];
+          if (sign(p) !== turn) continue;
+          if (chainLock && (chainLock.r !== r || chainLock.c !== c)) continue;
+
+          const ms = legalMovesForSelection(r,c);
+          if (ms.length === 0) continue;
+          if (mustCap && !ms.some(m => m.capture)) continue;
+
+          boardEl.children[coordToIndex(r,c)].classList.add("selectable");
+        }
+      }
+
+      if (selected){
+        boardEl.children[coordToIndex(selected.r, selected.c)].classList.add("selected");
+      }
+      for (const m of legalMoves){
+        const sq = boardEl.children[coordToIndex(m.to.r, m.to.c)];
+        sq.classList.add(m.capture ? "capture" : "move");
+      }
+
+      // disable undo if empty
+      undoBtn.disabled = history.length === 0;
+    }
+
+    /********************
+     * QUIZ
+     ********************/
+    function pickRandomQuestion(){
+      const i = Math.floor(Math.random() * PDE_QUESTIONS.length);
+      return PDE_QUESTIONS[i];
+    }
+
+    function showQuiz(question, onAnswer){
+      inputLocked = true;
+      overlay.style.display = "flex";
+      qTitle.textContent = `${question.id}`;
+      qText.textContent = question.text;
+      qFeedback.textContent = "Answer to keep the capture.";
+      choicesEl.innerHTML = "";
+
+      const labels = {
+        A: "A",
+        B: "B",
+        C: "C",
+        D: "D"
+      };
+
+      for (const ch of question.choices){
+        const btn = document.createElement("button");
+        btn.textContent = labels[ch];
+        btn.addEventListener("click", () => onAnswer(ch));
+        choicesEl.appendChild(btn);
+      }
+    }
+
+    function hideQuiz(){
+      overlay.style.display = "none";
+      choicesEl.innerHTML = "";
+      qFeedback.textContent = "";
+      inputLocked = false;
+      pendingAfterCapture = null;
+    }
+
+    /********************
+     * INPUT / GAME FLOW
+     ********************/
+    function onSquareClick(i){
+      if (inputLocked) return;
+      const winner = winnerIfAny();
+      if (winner !== 0) return;
+
+      const {r,c} = indexToCoord(i);
+      const p = board[r][c];
+
+      // move if clicking a legal destination
+      if (selected){
+        const move = legalMoves.find(m => m.to.r === r && m.to.c === c);
+        if (move){
+          pushHistory(); // snapshot before any move attempt
+
+          const isCapture = !!move.capture;
+          applyMove(move);
+
+          render();
+
+          if (isCapture){
+            SFX.capture();
+            // after a capture, show a random question:
+            const preSnap = history[history.length - 1]; // snapshot before this move
+            pendingAfterCapture = { preSnap, move };
+
+            const q = pickRandomQuestion();
+            showQuiz(q, (choice) => {
+              // lock choice buttons
+              [...choicesEl.querySelectorAll("button")].forEach(b => b.disabled = true);
+
+              if (choice === q.correct){
+                SFX.correct();
+                qFeedback.textContent = `Correct (${q.correct}). Capture stands.`;
+                // keep state as-is; if chain continues, player keeps moving.
+                setTimeout(() => {
+                  hideQuiz();
+                  // if the move created/kept chainLock, it remains the same player's turn.
+                  render();
+                  updateStatus();
+                  // win check
+                  const w = winnerIfAny();
+                  if (w !== 0) SFX.win();
+                }, 650);
+              } else {
+                SFX.wrong();
+                qFeedback.textContent = `Wrong. Correct answer: ${q.correct}. Capture is undone and turn passes.`;
+                setTimeout(() => {
+                  // restore pre-move state, then pass turn to opponent
+                  hideQuiz();
+                  restoreSnap(preSnap);
+                  // pass turn on failure
+                  turn *= -1;
+                  selected = null;
+                  legalMoves = [];
+                  chainLock = null;
+
+                  render();
+                  updateStatus();
+                }, 900);
+              }
+            });
+
+            updateStatus();
+            return;
+          } else {
+            SFX.move();
+            updateStatus();
+            const w = winnerIfAny();
+            if (w !== 0) SFX.win();
+            return;
+          }
+        }
+      }
+
+      // select piece
+      if (sign(p) === turn){
+        if (chainLock && (chainLock.r !== r || chainLock.c !== c)){
+          statusEl.innerHTML = `<span class="warn">You must continue jumping with the same piece.</span>`;
+          return;
+        }
+
+        const ms = legalMovesForSelection(r,c);
+        const mustCap = mustCaptureForPlayer(turn);
+        if (mustCap && !ms.some(m => m.capture)){
+          statusEl.innerHTML = `<span class="warn">A capture is available — you must capture.</span>`;
+          return;
+        }
+
+        selected = {r,c};
+        legalMoves = ms;
+        SFX.click();
+        render();
+        updateStatus();
+      } else {
+        // click elsewhere clears selection (unless chainLock)
+        if (chainLock){
+          statusEl.innerHTML = `<span class="warn">Continue your multi-jump.</span>`;
+        } else {
+          selected = null;
+          legalMoves = [];
+          render();
+          updateStatus();
+        }
+      }
+    }
+
+    function updateStatus(){
+      const winner = winnerIfAny();
+      if (winner === 1){
+        statusEl.innerHTML = `<span class="good">Red wins!</span>`;
+        return;
+      }
+      if (winner === -1){
+        statusEl.innerHTML = `<span class="good">Black wins!</span>`;
+        return;
+      }
+
+      if (inputLocked){
+        statusEl.innerHTML = `<span class="warn">Answer the quiz to continue.</span>`;
+        return;
+      }
+
+      if (chainLock){
+        statusEl.innerHTML = `<span class="warn">Multi-jump: keep capturing with the selected piece.</span>`;
+      } else {
+        const mustCap = mustCaptureForPlayer(turn);
+        statusEl.innerHTML = mustCap
+          ? `<span class="warn">Capture required.</span>`
+          : `<span class="pill" style="display:inline-block;">Select a piece to move.</span>`;
+      }
+    }
+
+    /********************
+     * INIT / BUTTONS
+     ********************/
+    function initBoard(){
+      board = Array.from({length: SIZE}, () => Array(SIZE).fill(0));
+      // black at top (rows 0-2), red at bottom (rows 5-7)
+      for (let r = 0; r < 3; r++){
+        for (let c = 0; c < SIZE; c++){
+          if ((r + c) % 2 === 1) board[r][c] = -1;
+        }
+      }
+      for (let r = 5; r < 8; r++){
+        for (let c = 0; c < SIZE; c++){
+          if ((r + c) % 2 === 1) board[r][c] = 1;
+        }
+      }
+      turn = 1;
+      selected = null;
+      legalMoves = [];
+      chainLock = null;
+      inputLocked = false;
+      pendingAfterCapture = null;
+      history.length = 0;
+      hideQuiz();
+
+      render();
+      updateStatus();
+      undoBtn.disabled = true;
+    }
+
+    restartBtn.addEventListener("click", () => { initBoard(); });
+    flipBtn.addEventListener("click", () => { flipped = !flipped; render(); });
+    undoBtn.addEventListener("click", () => { popUndo(); });
+
+    initBoard();
+  </script>
+</body>
+</html>
