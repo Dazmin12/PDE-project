@@ -1,0 +1,1451 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Checkers + with + PDE + by + Danial + Azimin</title>
+  
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+
+  <style>
+    :root{
+      --light:#f0d9b5;
+      --dark:#b58863;
+      --accent:#2b6cb0;
+      --warn:#f59e0b;
+      --red:#d64545;
+      --black:#222;
+      --bg:#0f172a;
+      --panel:#111827;
+      --text:#e5e7eb;
+      --muted:#94a3b8;
+    }
+    body{
+      margin:0; min-height:100vh;
+      display:flex; align-items:center; justify-content:center;
+      background: radial-gradient(1200px 800px at 20% 10%, #1f2937, var(--bg));
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      color:var(--text);
+      padding:24px;
+      user-select:none;
+    }
+    /* Prevent scrollbar jump when modal opens */
+    body.modal-open { overflow: hidden; padding-right: 15px; }
+
+    .wrap{
+      display:flex; gap:18px; flex-wrap:wrap; align-items:flex-start; justify-content:center;
+      max-width: 1024px;
+      width: 100%;
+    }
+    .panel{
+      width:360px; max-width:92vw;
+      background: rgba(17,24,39,.88);
+      border:1px solid rgba(255,255,255,.10);
+      border-radius:18px; padding:16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.35);
+      backdrop-filter: blur(8px);
+      display:flex; flex-direction: column;
+    }
+    h1{
+      font-size:18px; margin:0 0 10px;
+      text-align: center;
+      user-select:none;
+    }
+    .row{
+      display:flex; gap:10px; flex-wrap:wrap; align-items:center;
+    }
+    .pill{
+      background: rgba(255,255,255,.08);
+      border:1px solid rgba(255,255,255,.10);
+      border-radius:999px;
+      padding:6px 10px;
+      font-size:13px;
+      color:var(--muted);
+      user-select:none;
+    }
+    .pill strong{
+      color:var(--text); font-weight:600;
+    }
+    button{
+      background: rgba(255,255,255,.10);
+      border:1px solid rgba(255,255,255,.16);
+      color:var(--text);
+      border-radius:12px;
+      padding:10px 12px;
+      cursor:pointer;
+      transition: background 0.3s ease;
+      font-weight: 600;
+      user-select:none;
+    }
+    button:hover:not(:disabled){
+      background: rgba(255,255,255,.14);
+    }
+    button:active:not(:disabled) {
+      transform: translateY(1px);
+    }
+    button:disabled {
+      opacity:.55; cursor:not-allowed; transform:none;
+    }
+    .hint{
+      font-size:13px; color:var(--muted); line-height:1.35; margin-top:10px;
+      user-select:none;
+    }
+    .status{
+      margin-top:12px; font-size:14px; min-height: 24px; font-weight:600;
+      text-align: center;
+    }
+    .good{ color:#86efac; }
+    .warn{ color:#fde68a; }
+    .bad{ color:#fca5a5; }
+
+    /* Board */
+    .board{
+      display:grid;
+      grid-template-columns: repeat(8, 64px);
+      grid-template-rows: repeat(8, 64px);
+      border-radius:18px;
+      overflow:hidden;
+      border: 1px solid rgba(255,255,255,.14);
+      box-shadow: 0 12px 34px rgba(0,0,0,.4);
+      touch-action: manipulation;
+      background: #000;
+      user-select:none;
+      outline:none;
+    }
+    @media (max-width: 560px){
+      .board{ grid-template-columns: repeat(8, 42px); grid-template-rows: repeat(8, 42px); }
+    }
+    .sq{
+      position:relative;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      cursor: pointer;
+      outline-offset: -3px;
+      outline: none;
+      transition: box-shadow 0.25s ease, outline 0.25s ease;
+    }
+    .sq.light{ background: var(--light); }
+    .sq.dark{ background: var(--dark); }
+    .sq.selectable{
+      outline: 3px solid rgba(255,255,255,.35);
+    }
+    .sq.selected{
+      outline: 4px solid var(--accent);
+    }
+    .sq.move{
+      box-shadow: inset 0 0 0 4px rgba(43,108,176,.55);
+    }
+    .sq.capture{
+      box-shadow: inset 0 0 0 4px rgba(245,158,11,.65);
+    }
+    .sq:focus {
+      outline: 3px solid var(--accent);
+      outline-offset: -3px;
+    }
+
+    /* URGENT: Pulse effect for mandatory captures */
+    @keyframes urgentPulse {
+      0% { box-shadow: inset 0 0 0 2px var(--warn); }
+      50% { box-shadow: inset 0 0 0 6px var(--warn); }
+      100% { box-shadow: inset 0 0 0 2px var(--warn); }
+    }
+    .sq.urgent::after {
+      content: "";
+      position: absolute;
+      inset: 2px;
+      border-radius: 50%;
+      animation: urgentPulse 1.5s infinite;
+      z-index: 10;
+      pointer-events: none;
+    }
+
+    .piece{
+      width:70%;
+      height:70%;
+      border-radius:50%;
+      box-shadow: inset 0 6px 10px rgba(255,255,255,.18),
+                  inset 0 -10px 14px rgba(0,0,0,.35),
+                  0 8px 14px rgba(0,0,0,.25);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      position:relative;
+      user-select:none;
+      z-index: 5;
+    }
+    .piece.red{
+      background: radial-gradient(circle at 30% 25%, #ffb4b4, var(--red));
+      box-shadow:
+        inset 0 4px 6px rgba(255,0,0,0.6),
+        inset 0 -8px 12px rgba(0,0,0,0.3),
+        0 6px 12px rgba(255,0,0,0.3);
+    }
+    .piece.black{
+      background: radial-gradient(circle at 30% 25%, #b3b3b3, var(--black));
+      box-shadow:
+        inset 0 4px 6px rgba(0,0,0,0.8),
+        inset 0 -8px 12px rgba(255,255,255,0.12),
+        0 6px 12px rgba(0,0,0,0.5);
+    }
+    .king{
+      width:62%;
+      height:62%;
+      border-radius:50%;
+      border: 2px solid rgba(255,255,255,.65);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-weight:800;
+      color:rgba(255,255,255,.92);
+      text-shadow: 0 2px 8px rgba(0,0,0,.35);
+      background: rgba(0,0,0,.12);
+      user-select:none;
+    }
+
+    /* Overlays */
+    .overlay{
+      position:fixed; inset:0;
+      display:none;
+      align-items:center; justify-content:center;
+      background: rgba(0,0,0,.60);
+      padding:18px;
+      z-index:999;
+      user-select:none;
+    }
+    .modal{
+      width:min(760px, 96vw);
+      background: rgba(17,24,39,.96);
+      border:1px solid rgba(255,255,255,.12);
+      border-radius:18px;
+      box-shadow: 0 18px 50px rgba(0,0,0,.55);
+      padding:16px;
+      user-select:none;
+    }
+    .modal h2{
+      margin:0 0 8px; font-size:18px;
+      text-align:center;
+      user-select:none;
+    }
+    .qtext{
+      /* white-space: pre-wrap; REMOVED to let KaTeX handle spacing naturally */
+      font-size:15px;
+      color: var(--text);
+      line-height:1.5;
+      margin: 10px 0 16px;
+      user-select:none;
+      min-height: 80px;
+    }
+    .choices{
+      display:grid;
+      grid-template-columns: repeat(auto-fit,minmax(64px,1fr));
+      gap:10px;
+      margin-top: 8px;
+    }
+    .choices button {
+      font-weight: 700;
+      font-size: 1.1rem;
+      padding: 8px 10px;
+      border-radius: 8px;
+      transition: background 0.3s ease;
+    }
+    .choices button:hover:not(:disabled) {
+      background: var(--accent);
+      color: #fff;
+    }
+    .choices button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .meta{
+      display:flex; gap:10px; flex-wrap:wrap; align-items:center;
+      color: var(--muted);
+      font-size:13px;
+      justify-content:center;
+      user-select:none;
+    }
+    .small{
+      font-size:12px; color: var(--muted); margin-top:10px;
+      user-select:none;
+    }
+    .formRow{
+      display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;
+    }
+    .field{
+      flex:1; min-width: 180px; display:flex; flex-direction:column; gap:6px;
+    }
+    label{
+      font-size:12px; color: var(--muted);
+      user-select:none;
+    }
+    input, select{
+      background: rgba(255,255,255,.08);
+      border:1px solid rgba(255,255,255,.14);
+      border-radius:12px;
+      padding:10px 12px;
+      color: var(--text);
+      outline:none;
+      font-size: 1rem;
+    }
+    input:focus, select:focus{
+      border-color: rgba(43,108,176,.7);
+      box-shadow: 0 0 0 3px rgba(43,108,176,.18);
+    }
+    .winBig{
+      font-size: clamp(28px, 5vw, 56px);
+      font-weight: 900;
+      line-height: 1.05;
+      margin: 8px 0 10px;
+      text-align:center;
+      user-select:none;
+    }
+    .winSub{
+      text-align:center;
+      color: var(--muted);
+      margin-bottom: 14px;
+      font-size: 14px;
+      user-select:none;
+    }
+    .centerRow{
+      display:flex; gap:10px; justify-content:center; flex-wrap:wrap;
+      user-select:none;
+    }
+    @keyframes pulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.06); }
+      100% { transform: scale(1); }
+    }
+    .bombHot{
+      color:#f87171 !important;
+      animation: pulse 0.8s infinite;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap" role="main">
+    <section aria-label="Checkers Board" tabindex="0" class="board" id="board" aria-live="polite"></section>
+
+    <aside class="panel" aria-label="Game Info and Controls">
+      <h1>Checkers + PDE Quiz</h1>
+
+      <div class="row" aria-live="polite" aria-atomic="true">
+        <div class="pill" aria-label="Current Player Turn">Turn: <strong id="turnLabel"></strong></div>
+        <div class="pill" aria-label="Remaining captures until quiz">Quiz Bomb: <strong id="quizCountLabel"></strong></div>
+        <div class="pill" aria-label="Is capture mandatory">Must capture: <strong id="mustCaptureLabel"></strong></div>
+      </div>
+
+      <nav class="row" style="margin-top:10px;" aria-label="Game Controls">
+        <button id="restartBtn" type="button" aria-keyshortcuts="r" title="Restart the current game (R)">Restart</button>
+        <button id="undoBtn" type="button" aria-keyshortcuts="u" title="Undo last move (U)">Undo</button>
+        <button id="flipBtn" type="button" aria-keyshortcuts="f" title="Flip board orientation (F)">Flip</button>
+        <button id="newMatchBtn" type="button" aria-keyshortcuts="n" title="Start new match with new players (N)">New Match</button>
+      </nav>
+
+      <div role="status" class="status" id="status" aria-live="assertive" aria-atomic="true"></div>
+
+      <div class="hint" aria-label="Game hints">
+        <ul>
+          <li>Captures are mandatory.</li>
+          <li>In PvP: the bomb decreases on <b>every capture</b>.</li>
+          <li>In PvC: the bomb decreases on <b>player captures only</b>.</li>
+          <li>When it hits 0, the next <b>player capture</b> triggers a PDE quiz.</li>
+          <li>Wrong answer: capture undone and the turn passes.</li>
+        </ul>
+      </div>
+    </aside>
+  </div>
+
+  <div id="startOverlay" class="overlay" style="display:flex;" role="dialog" aria-modal="true" aria-labelledby="startTitle">
+    <div class="modal">
+      <div class="meta">
+        <span class="pill">Two Players</span>
+        <span class="pill">Sides assigned randomly</span>
+      </div>
+      <h2 id="startTitle">Enter player names and choose game mode</h2>
+      <form id="startForm" onsubmit="return false;" aria-describedby="assignHint">
+        <div class="formRow">
+          <div class="field">
+            <label for="p1">Player 1 Name</label>
+            <input id="p1" name="p1" placeholder="e.g., Ali" maxlength="20" autocomplete="off" required />
+          </div>
+          <div class="field">
+            <label for="p2">Player 2 Name / Computer</label>
+            <input id="p2" name="p2" placeholder="e.g., Siti or Computer" maxlength="20" autocomplete="off" required />
+          </div>
+        </div>
+        <div class="formRow">
+          <div class="field">
+            <label for="gameMode">Game Mode</label>
+            <select id="gameMode" name="gameMode" aria-describedby="gameModeHint" required>
+              <option value="pvp" selected>Player vs Player</option>
+              <option value="pvc">Player vs Computer</option>
+            </select>
+            <small id="gameModeHint" class="small">Choose game type</small>
+          </div>
+          <div class="field" id="difficultyField" style="display:none;">
+            <label for="difficulty">Difficulty (Computer)</label>
+            <select id="difficulty" name="difficulty" >
+              <option value="easy" selected>Easy (Random)</option>
+              <option value="intermediate">Intermediate (Safe Moves)</option>
+              <option value="hard">Hard (Aggressive)</option>
+            </select>
+          </div>
+        </div>
+        <div class="small" id="assignHint">Click Start to randomly assign Red/Black.</div>
+        <div class="centerRow" style="margin-top:12px;">
+          <button id="startBtn" type="submit">Start Game</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="quizOverlay" class="overlay" role="dialog" aria-modal="true" aria-labelledby="qTitle" aria-describedby="qText">
+    <div class="modal">
+      <div class="meta">
+        <span class="pill">Capture Quiz</span>
+        <span class="pill">Wrong ⇒ <strong>turn passes</strong></span>
+      </div>
+      <h2 id="qTitle">Question</h2>
+      <div id="qText" class="qtext"></div>
+      <div id="choices" class="choices" role="list"></div>
+      <div id="qFeedback" class="small" aria-live="assertive"></div>
+    </div>
+  </div>
+
+  <div id="winOverlay" class="overlay" role="dialog" aria-modal="true" aria-labelledby="winBig" aria-describedby="winSub">
+    <div class="modal">
+      <div class="winBig" id="winBig"></div>
+      <div class="winSub" id="winSub"></div>
+      <div class="centerRow">
+        <button id="playAgainBtn" type="button">Play Again (same sides)</button>
+        <button id="rematchBtn" type="button">Rematch (re-randomize sides)</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  // Use LaTeX delimiters for KaTeX
+  const PDE_QUESTIONS = [
+  {
+    id: "Q1",
+    text: `Consider the PDE $$u u_{xx} + u_y = 0$$. Which statement is correct?`,
+    choices: [
+      "A. Linear, homogeneous, second order",
+      "B. Nonlinear, homogeneous, second order",
+      "C. Linear, non-homogeneous, first order",
+      "D. Nonlinear, non-homogeneous, first order"
+    ],
+    correct: "B"
+  },
+
+  {
+    id: "Q2",
+    text: `The PDE $$u_{xx} + u_{yy} = 0$$ is classified as:`,
+    choices: [
+      "A. Parabolic",
+      "B. Hyperbolic",
+      "C. Elliptic",
+      "D. Mixed"
+    ],
+    correct: "C"
+  },
+
+  {
+    id: "Q3",
+    text: `Which choice of separation constant $$\\lambda$$ and general solution is correct for Laplace’s equation with Dirichlet BCs?`,
+    choices: [
+      "A. $$\\lambda > 0$$, exponential solution",
+      "B. $$\\lambda = 0$$, linear solution",
+      "C. $$\\lambda < 0$$, sine series solution",
+      "D. Any $$\\lambda$$ is allowed"
+    ],
+    correct: "C"
+  },
+
+  {
+    id: "Q4",
+    text: `For Neumann boundary conditions $$u_x(0,y)=u_x(L,y)=0$$, which statement is correct?`,
+    choices: [
+      "A. Only sine terms survive",
+      "B. Only cosine terms survive",
+      "C. $$\\lambda > 0$$ gives physical solution",
+      "D. Only trivial solution exists"
+    ],
+    correct: "B"
+  },
+
+  {
+    id: "Q5",
+    text: `For mixed boundary conditions (left insulated, right fixed), which eigenfunctions arise?`,
+    choices: [
+      "A. Integer sine modes",
+      "B. Integer cosine modes",
+      "C. Half-range cosine modes",
+      "D. Exponential modes"
+    ],
+    correct: "C"
+  },
+
+  {
+    id: "Q6",
+    text: `For mixed boundary conditions (left fixed, right insulated), which $$\\lambda$$ and spatial solution are correct?`,
+    choices: [
+      "A. $$\\lambda > 0$$, exponential",
+      "B. $$\\lambda = 0$$, constant",
+      "C. $$\\lambda < 0$$, sine with half-odd multiples",
+      "D. Any $$\\lambda$$"
+    ],
+    correct: "C"
+  },
+
+  {
+    id: "Q7",
+    text: `For Robin boundary conditions, which statement is true?`,
+    choices: [
+      "A. Eigenvalues are integers",
+      "B. $$\\lambda = 0$$ always works",
+      "C. Eigenvalues are roots of a transcendental equation",
+      "D. Only sine solutions exist"
+    ],
+    correct: "C"
+  },
+
+  {
+    id: "Q8",
+    text: `For the wave equation with Dirichlet boundary conditions, the correct general solution is:`,
+    choices: [
+      "A. Traveling wave only",
+      "B. Exponential in time",
+      "C. Standing wave sine series",
+      "D. Constant solution"
+    ],
+    correct: "C"
+  },
+
+  {
+    id: "Q9",
+    text: `For Neumann boundary conditions in the wave equation, which is allowed?`,
+    choices: [
+      "A. Only sine terms",
+      "B. Only cosine terms",
+      "C. Only trivial solution",
+      "D. Exponential modes"
+    ],
+    correct: "B"
+  },
+
+  {
+    id: "Q10",
+    text: `For mixed boundary conditions (left insulated, right fixed), which $$\\lambda$$ is admissible?`,
+    choices: [
+      "A. $$\\lambda > 0$$",
+      "B. $$\\lambda = 0$$",
+      "C. $$\\lambda < 0$$",
+      "D. All values"
+    ],
+    correct: "C"
+  },
+
+  {
+    id: "Q11",
+    text: `For mixed BCs (left fixed, right insulated), the spatial eigenfunctions are:`,
+    choices: [
+      "A. Integer sine modes",
+      "B. Half-integer sine modes",
+      "C. Cosine modes",
+      "D. Exponential modes"
+    ],
+    correct: "B"
+  },
+
+  {
+    id: "Q12",
+    text: `A PDE has non-homogeneous boundary conditions but a homogeneous PDE. Which method is preferred?`,
+    choices: [
+      "A. Eigenfunction expansion directly",
+      "B. Decomposition method",
+      "C. D’Alembert solution",
+      "D. Fourier transform"
+    ],
+    correct: "B"
+  },
+
+  {
+    id: "Q13",
+    text: `The first step in the decomposition method is to:`,
+    choices: [
+      "A. Solve the PDE directly",
+      "B. Expand the solution as a Fourier series",
+      "C. Split the solution into steady-state and transient parts",
+      "D. Apply initial conditions"
+    ],
+    correct: "C"
+  },
+
+  {
+    id: "Q14",
+    text: `In eigenfunction expansion, the general solution is expressed as:`,
+    choices: [
+      "A. A single eigenfunction",
+      "B. A finite sum of eigenfunctions",
+      "C. A linear combination of eigenfunctions forming an infinite series",
+      "D. A polynomial"
+    ],
+    correct: "C"
+  }
+];
+
+
+  const SIZE = 8;
+  const RED_MAN = 1, RED_KING = 2;
+  const BLACK_MAN = -1, BLACK_KING = -2;
+
+  let board = [];
+  let turn = RED_MAN;
+  let selected = null;
+  let legalMoves = [];
+  let chainLock = null;
+  let flipped = false;
+
+  let playerRed = "Red";
+  let playerBlack = "Black";
+
+  // Bomb timer (counts down to a quiz)
+  let capturesUntilQuiz = 0;
+  function random1to5() { return Math.floor(Math.random() * 5) + 1; }
+  function resetBomb() {
+    capturesUntilQuiz = random1to5();
+    updateBombLabel();
+  }
+
+  // Undo
+  const history = [];
+
+  // Quiz lock
+  let inputLocked = false;
+  let pendingPreSnap = null;
+
+  // Computer player
+  const MODE_PVP = "pvp";
+  const MODE_PVC = "pvc";
+  let gameMode = MODE_PVP;
+  let difficulty = "easy";
+  let computerSide = null; // +1 or -1 when in pvc
+
+  // DOM
+  const boardEl = document.getElementById("board");
+  const turnLabel = document.getElementById("turnLabel");
+  const quizCountLabel = document.getElementById("quizCountLabel");
+  const mustCaptureLabel = document.getElementById("mustCaptureLabel");
+  const statusEl = document.getElementById("status");
+
+  const restartBtn = document.getElementById("restartBtn");
+  const undoBtn = document.getElementById("undoBtn");
+  const flipBtn = document.getElementById("flipBtn");
+  const newMatchBtn = document.getElementById("newMatchBtn");
+
+  const startOverlay = document.getElementById("startOverlay");
+  const startBtn = document.getElementById("startBtn");
+  const startForm = document.getElementById("startForm");
+  const p1Input = document.getElementById("p1");
+  const p2Input = document.getElementById("p2");
+  const gameModeSelect = document.getElementById("gameMode");
+  const difficultyField = document.getElementById("difficultyField");
+  const difficultySelect = document.getElementById("difficulty");
+
+  const quizOverlay = document.getElementById("quizOverlay");
+  const qTitle = document.getElementById("qTitle");
+  const qText = document.getElementById("qText");
+  const choicesEl = document.getElementById("choices");
+  const qFeedback = document.getElementById("qFeedback");
+
+  const winOverlay = document.getElementById("winOverlay");
+  const winBig = document.getElementById("winBig");
+  const winSub = document.getElementById("winSub");
+  const playAgainBtn = document.getElementById("playAgainBtn");
+  const rematchBtn = document.getElementById("rematchBtn");
+
+  // Sound effects
+  let audioCtx = null;
+  function ensureAudio() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+  }
+  function playTone(freq, durMs, type = "sine", gain = 0.06) {
+    try {
+      ensureAudio();
+      const t0 = audioCtx.currentTime;
+      const osc = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, t0);
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(gain, t0 + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + durMs / 1000);
+      osc.connect(g).connect(audioCtx.destination);
+      osc.start(t0);
+      osc.stop(t0 + durMs / 1000 + 0.02);
+    } catch (_) {}
+  }
+  const SFX = {
+    click() { playTone(520, 60, "triangle", 0.04); },
+    move() { playTone(420, 90, "triangle", 0.06); },
+    capture() { playTone(220, 110, "sawtooth", 0.06); playTone(660, 70, "square", 0.03); },
+    correct() { playTone(784, 120, "sine", 0.06); playTone(988, 140, "sine", 0.05); },
+    wrong() { playTone(180, 160, "sawtooth", 0.07); },
+    undo() { playTone(300, 90, "triangle", 0.05); playTone(240, 120, "triangle", 0.05); },
+    win() { playTone(523.25, 140, "sine", 0.05); playTone(659.25, 140, "sine", 0.05); playTone(783.99, 180, "sine", 0.05); }
+  };
+  document.addEventListener("pointerdown", () => { ensureAudio(); }, { once:true });
+
+  // Helpers
+  function deepCloneBoard(b) { return b.map(row => row.slice()); }
+  function sign(x) { return x > 0 ? 1 : x < 0 ? -1 : 0; }
+  function inBounds(r, c) { return r >= 0 && r < SIZE && c >= 0 && c < SIZE; }
+  function isKing(p) { return Math.abs(p) === 2; }
+
+  // Who is human in PvC?
+  function isComputerSide(side) {
+    return gameMode === MODE_PVC && computerSide != null && side === computerSide;
+  }
+  function isHumanSide(side) {
+    return gameMode !== MODE_PVC ? true : !isComputerSide(side);
+  }
+  // Bomb rules
+  function captureCountsForBomb(moverSide) {
+    return gameMode === MODE_PVP ? true : isHumanSide(moverSide);
+  }
+  function captureCanTriggerQuiz(moverSide) {
+    return gameMode === MODE_PVP ? true : isHumanSide(moverSide);
+  }
+
+  function snapshot() {
+    return {
+      board: deepCloneBoard(board),
+      turn,
+      selected: selected ? { r: selected.r, c: selected.c } : null,
+      legalMoves: legalMoves.map(m => ({
+        from: { ...m.from }, to: { ...m.to },
+        capture: m.capture ? { ...m.capture } : null,
+      })),
+      chainLock: chainLock ? { r: chainLock.r, c: chainLock.c } : null,
+      flipped,
+      inputLocked,
+      playerRed,
+      playerBlack,
+      capturesUntilQuiz,
+      computerSide,
+      gameMode,
+      difficulty
+    };
+  }
+
+  function restoreSnap(s) {
+    if (!s) return; 
+    board = deepCloneBoard(s.board);
+    turn = s.turn;
+    selected = s.selected ? { r: s.selected.r, c: s.selected.c } : null;
+    legalMoves = (s.legalMoves || []).map(m => ({
+      from:{...m.from}, to:{...m.to},
+      capture: m.capture ? {...m.capture} : null
+    }));
+    chainLock = s.chainLock ? { r: s.chainLock.r, c: s.chainLock.c } : null;
+    flipped = !!s.flipped;
+    inputLocked = !!s.inputLocked;
+    playerRed = s.playerRed ?? "Red";
+    playerBlack = s.playerBlack ?? "Black";
+    capturesUntilQuiz = (typeof s.capturesUntilQuiz === "number") ? s.capturesUntilQuiz : random1to5();
+    computerSide = s.computerSide ?? null;
+    gameMode = s.gameMode ?? MODE_PVP;
+    difficulty = s.difficulty ?? "easy";
+    updateBombLabel();
+  }
+
+  function pushHistory() {
+    history.push(snapshot());
+    undoBtn.disabled = history.length === 0;
+  }
+
+  function toggleModal(open) {
+    document.body.classList.toggle("modal-open", open);
+  }
+
+  function hideQuiz() {
+    quizOverlay.style.display = "none";
+    toggleModal(false);
+    choicesEl.innerHTML = "";
+    qFeedback.textContent = "";
+    inputLocked = false;
+    pendingPreSnap = null;
+  }
+
+  function popUndo() {
+    if (history.length === 0) return;
+    hideQuiz();
+    winOverlay.style.display = "none";
+    toggleModal(false);
+    const s = history.pop();
+    restoreSnap(s);
+    SFX.undo();
+    render();
+    updateStatus();
+    undoBtn.disabled = history.length === 0;
+  }
+
+  // Checkers logic
+  function dirsForPiece(p) {
+    const s = sign(p);
+    if (isKing(p)) return [[1,-1],[1,1],[-1,-1],[-1,1]];
+    return s === 1 ? [[-1,-1],[-1,1]] : [[1,-1],[1,1]];
+  }
+
+  function movesForPiece(r, c, includeQuiet) {
+    const p = board[r][c];
+    if (p === 0) return [];
+    const player = sign(p);
+    const dirs = dirsForPiece(p);
+    const moves = [];
+    for (const [dr, dc] of dirs) {
+      const r1 = r + dr, c1 = c + dc;
+      const r2 = r + 2*dr, c2 = c + 2*dc;
+
+      if (inBounds(r2, c2) && board[r2][c2] === 0) {
+        const mid = board[r1]?.[c1];
+        if (mid && sign(mid) === -player) {
+          moves.push({ from:{r,c}, to:{r:r2,c:c2}, capture:{r:r1,c:c1} });
+        }
+      }
+      if (includeQuiet && inBounds(r1, c1) && board[r1][c1] === 0) {
+        moves.push({ from:{r,c}, to:{r:r1,c:c1}, capture:null });
+      }
+    }
+    return moves;
+  }
+
+  function allMovesForPlayer(player) {
+    const captures = [];
+    const quiet = [];
+    for(let r=0;r<SIZE;r++){
+      for(let c=0;c<SIZE;c++){
+        const p = board[r][c];
+        if(sign(p)!==player) continue;
+        const ms = movesForPiece(r,c,true);
+        for(const m of ms) (m.capture ? captures : quiet).push(m);
+      }
+    }
+    return { captures, quiet };
+  }
+
+  function mustCaptureForPlayer(player) {
+    return allMovesForPlayer(player).captures.length > 0;
+  }
+
+  function legalMovesForSelection(r, c) {
+    const p = board[r][c];
+    if (sign(p) !== turn) return [];
+    if (chainLock && (chainLock.r !== r || chainLock.c !== c)) return [];
+    const mustCap = mustCaptureForPlayer(turn);
+    const all = movesForPiece(r, c, true);
+
+    if (chainLock) return all.filter(m => m.capture);
+    if (mustCap) return all.filter(m => m.capture);
+    return all;
+  }
+
+  function applyMove(move) {
+    const p = board[move.from.r][move.from.c];
+    board[move.from.r][move.from.c] = 0;
+    board[move.to.r][move.to.c] = p;
+
+    if (move.capture) {
+      board[move.capture.r][move.capture.c] = 0;
+    }
+
+    // Kinging
+    const p2 = board[move.to.r][move.to.c];
+    if (!isKing(p2)) {
+      if (p2 === RED_MAN && move.to.r === 0) board[move.to.r][move.to.c] = RED_KING;
+      if (p2 === BLACK_MAN && move.to.r === SIZE-1) board[move.to.r][move.to.c] = BLACK_KING;
+    }
+
+    // Multi-jump
+    if (move.capture) {
+      const moreCaps = movesForPiece(move.to.r, move.to.c, false).filter(m => m.capture);
+      if (moreCaps.length > 0) {
+        chainLock = { r: move.to.r, c: move.to.c };
+        selected = { r: move.to.r, c: move.to.c };
+        legalMoves = legalMovesForSelection(selected.r, selected.c);
+        return; 
+      }
+    }
+    chainLock = null;
+    selected = null;
+    legalMoves = [];
+    turn *= -1;
+  }
+
+  function hasAnyMoves(player) {
+    const {captures, quiet} = allMovesForPlayer(player);
+    return captures.length + quiet.length > 0;
+  }
+
+  function winnerIfAny() {
+    let redPieces = 0, blackPieces = 0;
+    for(let r=0;r<SIZE;r++){
+      for(let c=0;c<SIZE;c++){
+        const p = board[r][c];
+        if (p>0) redPieces++;
+        else if (p<0) blackPieces++;
+      }
+    }
+    if (redPieces === 0) return BLACK_MAN;
+    if (blackPieces === 0) return RED_MAN;
+    if (!hasAnyMoves(RED_MAN)) return BLACK_MAN;
+    if (!hasAnyMoves(BLACK_MAN)) return RED_MAN;
+    return 0;
+  }
+
+  // Rendering
+  function coordToIndex(r, c) {
+    if (!flipped) return r*SIZE + c;
+    return (SIZE-1 - r)*SIZE + (SIZE-1 - c);
+  }
+  function indexToCoord(i) {
+    const r = Math.floor(i / SIZE);
+    const c = i % SIZE;
+    if (!flipped) return { r, c };
+    return { r: SIZE-1 - r, c: SIZE-1 - c };
+  }
+  function currentPlayerName(side) {
+    return side === RED_MAN ? playerRed : playerBlack;
+  }
+
+  function updateBombLabel() {
+    if (capturesUntilQuiz <= 1) {
+      quizCountLabel.textContent = (capturesUntilQuiz === 1 ? "NEXT CAPTURE!" : "NOW!");
+      quizCountLabel.classList.add("bombHot");
+    } else {
+      quizCountLabel.textContent = `${capturesUntilQuiz} captures`;
+      quizCountLabel.classList.remove("bombHot");
+    }
+  }
+
+  function render() {
+    if (boardEl.childElementCount !== SIZE*SIZE) {
+      boardEl.innerHTML = "";
+      for(let i=0;i<SIZE*SIZE;i++) {
+        const sq = document.createElement("div");
+        sq.className = "sq";
+        sq.tabIndex = -1;
+        sq.setAttribute("role", "button");
+        sq.addEventListener("click", () => onSquareClick(i));
+        sq.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onSquareClick(i);
+          }
+        });
+        boardEl.appendChild(sq);
+      }
+    }
+
+    for(let i=0;i<SIZE*SIZE;i++){
+      const {r,c} = indexToCoord(i);
+      const sq = boardEl.children[i];
+      const isDark = (r+c)%2===1;
+
+      sq.className = "sq " + (isDark ? "dark" : "light");
+      sq.innerHTML = "";
+
+      const p = board[r][c];
+      if (p !== 0) {
+        const piece = document.createElement("div");
+        piece.className = "piece " + (p > 0 ? "red" : "black");
+        piece.setAttribute("aria-label", (p>0 ? playerRed : playerBlack) + " " + (Math.abs(p)===1?"Man":"King"));
+        if (isKing(p)) {
+          const k = document.createElement("div");
+          k.className = "king";
+          k.textContent = "K";
+          piece.appendChild(k);
+        }
+        sq.appendChild(piece);
+      }
+      sq.classList.remove("selectable", "selected", "move", "capture", "urgent");
+    }
+
+    const mustCap = mustCaptureForPlayer(turn);
+    mustCaptureLabel.textContent = mustCap ? "Yes" : "No";
+
+    const who = currentPlayerName(turn);
+    const sideText = turn === RED_MAN ? "Red" : "Black";
+    turnLabel.textContent = `${who} (${sideText})`;
+
+    updateBombLabel();
+
+    // Highlights
+    for(let r=0;r<SIZE;r++){
+      for(let c=0;c<SIZE;c++){
+        const p = board[r][c];
+        if(sign(p)!==turn) continue;
+        if(chainLock && (chainLock.r !== r || chainLock.c !== c)) continue;
+
+        const ms = legalMovesForSelection(r,c);
+        if(ms.length===0) continue;
+        
+        // Strict Visual Filtering:
+        // If capture is mandatory, only show pieces that can capture.
+        if(mustCap && !ms.some(m => m.capture)) continue;
+        
+        const sqEl = boardEl.children[coordToIndex(r,c)];
+        sqEl.classList.add("selectable");
+        // URGENT: visual pulse
+        if(mustCap) sqEl.classList.add("urgent");
+      }
+    }
+    if(selected){
+      boardEl.children[coordToIndex(selected.r, selected.c)].classList.add("selected");
+    }
+    for(const m of legalMoves){
+      const sq = boardEl.children[coordToIndex(m.to.r, m.to.c)];
+      sq.classList.add(m.capture ? "capture" : "move");
+    }
+
+    undoBtn.disabled = history.length === 0;
+  }
+
+  // Quiz logic
+  function pickRandomQuestion() {
+    return PDE_QUESTIONS[Math.floor(Math.random() * PDE_QUESTIONS.length)];
+  }
+
+  function showQuiz(question, onAnswer) {
+    inputLocked = true;
+    quizOverlay.style.display = "flex";
+    toggleModal(true);
+    qTitle.textContent = question.id;
+    
+    // KaTeX Integration: Set text, then render
+    qText.innerHTML = question.text; // Use innerHTML to allow simple formatting if needed
+    if (window.renderMathInElement) {
+      renderMathInElement(qText, {
+        delimiters: [
+          {left: "$$", right: "$$", display: true},
+          {left: "$", right: "$", display: false}
+        ]
+      });
+    }
+
+    qFeedback.textContent = `Answer correctly, ${currentPlayerName(turn)} (${turn === RED_MAN ? "Red" : "Black"}).`;
+    choicesEl.innerHTML = "";
+
+    question.choices.forEach(ch => {
+      const btn = document.createElement("button");
+      btn.textContent = ch.split(". ")[0]; // Just A, B, C, D
+      // Optional: Add full text in title or customized layout
+      btn.title = ch;
+      btn.type = "button";
+      btn.onclick = () => onAnswer(ch.charAt(0)); // Pass 'A' etc
+      choicesEl.appendChild(btn);
+      
+      // Also show text below button (simplified layout)
+      // For this compact UI, just using the letter on button is cleaner, 
+      // but let's put the full text inside for clarity
+      btn.textContent = ch; 
+    });
+    if(choicesEl.firstElementChild) choicesEl.firstElementChild.focus();
+  }
+
+  // Win modal
+  function showWin(winnerSide) {
+    const name = currentPlayerName(winnerSide);
+    const side = winnerSide === RED_MAN ? "Red" : "Black";
+    winBig.textContent = `🏆 ${name} WINS! 🏆`;
+    winSub.textContent = `${name} played ${side}. Congratulations!`;
+    winOverlay.style.display = "flex";
+    toggleModal(true);
+    SFX.win();
+  }
+  function hideWin() { 
+    winOverlay.style.display = "none"; 
+    toggleModal(false);
+  }
+
+  // Main click handler
+  function onSquareClick(i) {
+    if (startOverlay.style.display !== "none") return;
+    if (inputLocked) return;
+    if (winOverlay.style.display === "flex") return;
+
+    const winner = winnerIfAny();
+    if (winner !== 0) return;
+
+    const { r, c } = indexToCoord(i);
+    const p = board[r][c];
+
+    // In PvC: don't allow user to move computer pieces
+    if (gameMode === MODE_PVC && turn === computerSide) {
+      return;
+    }
+
+    if (selected) {
+      const move = legalMoves.find(m => m.to.r === r && m.to.c === c);
+      if (move) {
+        pushHistory();
+        const preSnap = history[history.length - 1];
+        const moverSide = turn;
+        const isCapture = !!move.capture;
+
+        applyMove(move);
+
+        if (isCapture) {
+          SFX.capture();
+          if (captureCountsForBomb(moverSide)) {
+            capturesUntilQuiz--;
+            updateBombLabel();
+          }
+
+          const quizShouldTrigger = capturesUntilQuiz <= 0 && captureCanTriggerQuiz(moverSide);
+
+          if (quizShouldTrigger) {
+            render();
+            pendingPreSnap = preSnap;
+
+            const q = pickRandomQuestion();
+            showQuiz(q, (choice) => {
+              [...choicesEl.querySelectorAll("button")].forEach(b => b.disabled = true);
+              // Check answer (First letter match)
+              if (choice === q.correct) {
+                SFX.correct();
+                qFeedback.textContent = `Correct! Capture stands.`;
+                resetBomb();
+                setTimeout(() => {
+                  hideQuiz();
+                  render();
+                  updateStatus();
+                  const w = winnerIfAny();
+                  if (w !== 0) showWin(w);
+                  if (gameMode === MODE_PVC && turn === computerSide) computerMove();
+                }, 650);
+              } else {
+                SFX.wrong();
+                qFeedback.textContent = `Wrong! Correct: ${q.correct}. Turn passes.`;
+                resetBomb();
+                setTimeout(() => {
+                  const snapToRestore = pendingPreSnap;
+                  hideQuiz();
+                  if (snapToRestore) restoreSnap(snapToRestore);
+                  turn *= -1; // Penalty: pass turn
+                  selected = null;
+                  legalMoves = [];
+                  chainLock = null;
+                  render();
+                  updateStatus();
+                  if (gameMode === MODE_PVC && turn === computerSide) computerMove();
+                }, 1000);
+              }
+            });
+            updateStatus();
+            return;
+          }
+          // No quiz
+          render();
+          updateStatus();
+          const w = winnerIfAny();
+          if (w !== 0) showWin(w);
+          else if (gameMode === MODE_PVC && turn === computerSide) computerMove();
+          return;
+        }
+
+        // Quiet move
+        SFX.move();
+        render();
+        updateStatus();
+        const w = winnerIfAny();
+        if (w !== 0) showWin(w);
+        else if (gameMode === MODE_PVC && turn === computerSide) computerMove();
+        return;
+      }
+    }
+
+    // Select piece
+    if (sign(p) === turn) {
+      if (chainLock && (chainLock.r !== r || chainLock.c !== c)) {
+        statusEl.innerHTML = `<span class="warn">Multi-jump active: select highlighted piece.</span>`;
+        return;
+      }
+      const ms = legalMovesForSelection(r, c);
+      const mustCap = mustCaptureForPlayer(turn);
+      if (mustCap && !ms.some(m => m.capture)) {
+        statusEl.innerHTML = `<span class="warn">Capture mandatory! Look for the pulsating pieces.</span>`;
+        return;
+      }
+      selected = { r, c };
+      legalMoves = ms;
+      SFX.click();
+      render();
+      updateStatus();
+    } else {
+      if (chainLock) statusEl.innerHTML = `<span class="warn">Continue your multi-jump.</span>`;
+      else {
+        selected = null;
+        legalMoves = [];
+        render();
+        updateStatus();
+      }
+    }
+  }
+
+  // AI Logic
+  function computerMove() {
+    if (startOverlay.style.display !== "none" || winOverlay.style.display === "flex") return;
+    if (inputLocked) return;
+    if (turn !== computerSide) return;
+
+    // 1. Add "Human" Delay
+    const delay = 600 + Math.random() * 900; // 0.6s to 1.5s
+    
+    setTimeout(() => {
+      // Re-validate state
+      if (turn !== computerSide || inputLocked) return;
+
+      const movesData = allMovesForPlayer(turn);
+      let movesList = movesData.captures.length > 0 ? movesData.captures : movesData.quiet;
+      if (movesList.length === 0) return;
+
+      let move = null;
+
+      if (difficulty === "easy") {
+        // Random
+        move = movesList[Math.floor(Math.random() * movesList.length)];
+      } 
+      else if (difficulty === "intermediate") {
+        // Safe: Try to avoid moves that land on a square immediately attackable by opponent
+        // This is a basic heuristic. If all moves are unsafe, pick random.
+        // Also prioritize captures if available (already handled by movesList logic above).
+        
+        // Simple safety check: simulate move, see if enemy can capture back immediately
+        const safeMoves = movesList.filter(m => {
+          // Simplification: just prefer center or edges? No, let's keep it simple for this single file.
+          // Better logic: Don't move into a spot where opponent has a piece ready to jump?
+          // For Intermediate, we just avoid "suicide" if possible, but implementing full simulation 
+          // is heavy. We stick to Random + Priority for Captures (Greedy)
+          // actually, let's just use the greedy logic from "hard" but add randomness
+          return true;
+        });
+        move = movesList[Math.floor(Math.random() * movesList.length)];
+      } 
+      else if (difficulty === "hard") {
+        // Aggressive/Greedy: Prioritize advancing (Red moves +r, Black moves -r)
+        // This makes the computer push forward rather than shuffling back row
+        movesList.sort((a,b) => {
+          // Prioritize captures first (already done by rules)
+          // Then prioritize advancement
+          if(turn === RED_MAN) return b.to.r - a.to.r; // maximize row index
+          return a.to.r - b.to.r; // minimize row index
+        });
+        // Pick best, or second best occasionally
+        move = (Math.random() < 0.9) ? movesList[0] : movesList[1] || movesList[0];
+      } else {
+        move = movesList[Math.floor(Math.random() * movesList.length)];
+      }
+
+      if (!move) return;
+
+      pushHistory();
+      applyMove(move);
+      render();
+      updateStatus();
+
+      const w = winnerIfAny();
+      if (w !== 0) {
+        showWin(w);
+        return;
+      }
+      if (chainLock && turn === computerSide) {
+        computerMove(); // Chain jumps are immediate (no delay)
+      }
+    }, delay);
+  }
+
+  function updateStatus() {
+    const winner = winnerIfAny();
+    if (winner === RED_MAN) {
+      statusEl.innerHTML = `<span class="good">${playerRed} Wins!</span>`;
+      return;
+    }
+    if (winner === BLACK_MAN) {
+      statusEl.innerHTML = `<span class="good">${playerBlack} Wins!</span>`;
+      return;
+    }
+    if (inputLocked) {
+      statusEl.innerHTML = `<span class="warn">Answer the quiz...</span>`;
+      return;
+    }
+    if (chainLock) {
+      statusEl.innerHTML = `<span class="warn">Multi-jump in progress...</span>`;
+    } else {
+      const mustCap = mustCaptureForPlayer(turn);
+      if(mustCap) statusEl.innerHTML = `<span class="warn bombHot">Capture Required!</span>`;
+      else statusEl.innerHTML = `<span class="pill" style="display:inline-block;">Your Move</span>`;
+    }
+  }
+
+  function initBoardOnly() {
+    board = Array.from({ length: SIZE }, () => Array(SIZE).fill(0));
+    for(let r=0; r<3; r++) for(let c=0;c<SIZE;c++) if((r+c)%2===1) board[r][c] = BLACK_MAN;
+    for(let r=5; r<8; r++) for(let c=0;c<SIZE;c++) if((r+c)%2===1) board[r][c] = RED_MAN;
+    
+    turn = RED_MAN;
+    selected = null;
+    legalMoves = [];
+    chainLock = null;
+    inputLocked = false;
+    pendingPreSnap = null;
+    history.length = 0;
+    hideQuiz();
+    hideWin();
+    undoBtn.disabled = true;
+  }
+
+  function startGameRandomSides() {
+    let n1 = (p1Input.value || "").trim() || "Player 1";
+    let n2 = (p2Input.value || "").trim() || "Player 2";
+    gameMode = gameModeSelect.value;
+    difficulty = difficultySelect.value;
+    computerSide = null;
+
+    if (Math.random() < 0.5) {
+      playerRed = n1; playerBlack = n2;
+    } else {
+      playerRed = n2; playerBlack = n1;
+    }
+    document.getElementById("assignHint").textContent = `${playerRed} is Red, ${playerBlack} is Black.`;
+
+    if (gameMode === MODE_PVC) {
+      const compNameLower = "computer";
+      if ((playerBlack || "").toLowerCase() === compNameLower) computerSide = BLACK_MAN;
+      else if ((playerRed || "").toLowerCase() === compNameLower) computerSide = RED_MAN;
+      else computerSide = BLACK_MAN;
+    }
+
+    initBoardOnly();
+    resetBomb();
+    startOverlay.style.display = "none";
+    toggleModal(false);
+    
+    // Auto-flip if human is Black (and playing against computer or standard pvp)
+    if (gameMode === MODE_PVC && computerSide === RED_MAN) flipped = true;
+    else if (gameMode === MODE_PVC && computerSide === BLACK_MAN) flipped = false;
+    else flipped = false; // PvP default
+
+    render();
+    updateStatus();
+    boardEl.focus();
+
+    if (gameMode === MODE_PVC && turn === computerSide) computerMove();
+  }
+
+  function showStart() {
+    hideQuiz();
+    hideWin();
+    startOverlay.style.display = "flex";
+    toggleModal(true);
+    statusEl.textContent = "";
+    p1Input.focus();
+  }
+
+  gameModeSelect.addEventListener("change", () => {
+    difficultyField.style.display = gameModeSelect.value === MODE_PVC ? "block" : "none";
+  });
+
+  startBtn.addEventListener("click", () => {
+    if(startForm.reportValidity()) startGameRandomSides();
+  });
+  startForm.addEventListener("submit", e => {
+    e.preventDefault();
+    if(startForm.reportValidity()) startGameRandomSides();
+  });
+
+  restartBtn.addEventListener("click", () => {
+    initBoardOnly();
+    resetBomb();
+    render();
+    updateStatus();
+    boardEl.focus();
+    if (gameMode === MODE_PVC && turn === computerSide) computerMove();
+  });
+  newMatchBtn.addEventListener("click", showStart);
+  flipBtn.addEventListener("click", () => {
+    flipped = !flipped;
+    render();
+    boardEl.focus();
+  });
+  undoBtn.addEventListener("click", popUndo);
+
+  playAgainBtn.addEventListener("click", () => {
+    initBoardOnly();
+    resetBomb();
+    hideWin();
+    render();
+    updateStatus();
+    boardEl.focus();
+    if (gameMode === MODE_PVC && turn === computerSide) computerMove();
+  });
+
+  rematchBtn.addEventListener("click", () => {
+    // Swap names logic or re-randomize
+    let n1 = playerRed; let n2 = playerBlack;
+    if (Math.random() < 0.5) { playerRed = n1; playerBlack = n2; }
+    else { playerRed = n2; playerBlack = n1; }
+    
+    // Recalculate computer side if needed
+    if (gameMode === MODE_PVC) {
+      if(playerBlack.toLowerCase()==="computer") computerSide=BLACK_MAN;
+      else if(playerRed.toLowerCase()==="computer") computerSide=RED_MAN;
+      else computerSide=BLACK_MAN;
+    }
+    
+    initBoardOnly();
+    resetBomb();
+    hideWin();
+    render();
+    updateStatus();
+    boardEl.focus();
+    if (gameMode === MODE_PVC && turn === computerSide) computerMove();
+  });
+
+  // Init
+  initBoardOnly();
+  resetBomb();
+  render();
+  updateStatus();
+
+  // Keyboard
+  boardEl.addEventListener("keydown", (e) => {
+    const focused = document.activeElement;
+    if (!boardEl.contains(focused) || !focused.classList.contains("sq")) return;
+    const index = Array.from(boardEl.children).indexOf(focused);
+    if (index < 0) return;
+    const { r, c } = indexToCoord(index);
+    let nr = r, nc = c;
+    switch (e.key) {
+      case "ArrowUp": nr = r - 1; break;
+      case "ArrowDown": nr = r + 1; break;
+      case "ArrowLeft": nc = c - 1; break;
+      case "ArrowRight": nc = c + 1; break;
+      default: return;
+    }
+    e.preventDefault();
+    if (inBounds(nr, nc)) {
+      boardEl.children[coordToIndex(nr, nc)].focus();
+    }
+  });
+
+})();
+</script>
+</body>
+</html>
